@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<!-- Save this file as alerts-report.html (UTF-8). Open in Chrome. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CNS Advising – Alerts Report</title>
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    :root {
+      --umass-maroon: #881C1C;
+      --soft-new-bg: #fff9db;   /* Pale yellow highlight for new items */
+      --soft-new-brd: #f59f00;  /* Amber border for new items */
+    }
+
+    body { 
+      background: #f1f3f5; 
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+      color: #343a40;
+    }
+    
+    .container { max-width: 1100px; }
+
+    .card-soft { 
+      background: #ffffff; 
+      border: 1px solid #dee2e6; 
+      border-radius: 0.5rem; 
+      margin-bottom: 1.5rem;
+    }
+    
+    .card-soft .card-body { padding: 1.25rem; }
+    
+    h1.h1 { font-weight: 800; color: var(--umass-maroon); letter-spacing: -0.02em; }
+    h2.h2 { font-weight: 700; font-size: 1.25rem; color: #495057; border-bottom: 2px solid #e9ecef; padding-bottom: 0.5rem; }
+    h3.h3 { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.25rem; }
+    h4.h4 { font-weight: 600; font-size: 0.95rem; margin-bottom: 0; }
+
+    .group-block { 
+      margin-top: 1rem; 
+      padding: 0.75rem; 
+      background: #f8f9fa; 
+      border-radius: 0.4rem; 
+      border-left: 4px solid #ced4da;
+    }
+    .group-label { color: var(--umass-maroon); }
+    
+    .student-list { margin-top: 0.5rem; }
+    .student-row { 
+      border-bottom: 1px solid #f1f3f5;
+      padding: 0.4rem 0.6rem; 
+      transition: background 0.1s ease;
+    }
+    .student-row:last-child { border-bottom: none; }
+    .student-row:hover { background: #f1f3f5 !important; }
+
+    .is-new { 
+      background-color: var(--soft-new-bg) !important; 
+      border-left: 4px solid var(--soft-new-brd) !important;
+    }
+
+    .pill { 
+      display: inline-block; 
+      font-size: 0.7rem; 
+      font-weight: 600;
+      padding: 0.1rem 0.4rem; 
+      border: 1px solid #dee2e6;
+      border-radius: 0.25rem; 
+      background: #ffffff; 
+      color: #495057; 
+      vertical-align: middle;
+    }
+    .since { background: #e9ecef !important; color: #495057 !important; font-style: normal; }
+    
+    .form-control-sm { border-radius: 0.35rem; }
+    details summary { cursor: pointer; color: var(--umass-maroon); font-weight: 500; }
+  </style>
+</head>
+
+<body>
+  <div class="container py-4">
+    <header class="mb-4">
+      <h1 class="h1 mb-1">Alerts &amp; Progress Reports</h1>
+      <p class="text-muted small mb-0">
+        Upload <strong>CSV snapshots</strong>. 
+        <span class="ms-3"><span style="background:var(--soft-new-bg); border-left:3px solid var(--soft-new-brd); padding: 0 4px;">Highlighted rows</span> represent a new alert condition since the previous file.</span>
+      </p>
+    </header>
+
+    <section class="card card-soft shadow-sm">
+      <div class="card-body">
+        <div class="row g-3 align-items-center">
+          <div class="col-12 col-md-7">
+            <label for="multiInput" class="form-label small fw-bold">Select CSV Snapshots</label>
+            <input id="multiInput" type="file" accept=".csv" multiple class="form-control form-control-sm" />
+            <div id="snapMeta" class="mt-2"></div>
+            <div id="status" class="small mt-1"></div>
+          </div>
+          <div class="col-12 col-md-5 small text-muted border-start ps-md-4">
+            <details>
+              <summary class="small">View Logic & Columns</summary>
+              <ul class="mt-2 mb-0 ps-3">
+                <li>Key: <code>Student ID + Course Number</code></li>
+                <li>Multiple alerts (one class): <code>Total Progress Reports ≥ 2</code></li>
+                <li>Multiple classes: <code>Total Progress Reports ≥ 1</code> in ≥2 courses</li>
+                <li><strong>Recent Changes:</strong> Only reflects the delta between the two most recent files.</li>
+              </ul>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="report" class="d-flex flex-column mt-4"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+  <script>
+    const showStatus = (msg, type="muted") => {
+      const box = document.getElementById('status');
+      box.className = `small mt-2 ${type === "error" ? "text-danger" : (type === "ok" ? "text-success" : "text-muted")}`;
+      box.textContent = `Status: ${msg}`;
+    };
+
+    const STR = v => (v == null ? '' : String(v).trim());
+    const NUM = v => {
+      const s = STR(v);
+      if (!s || s.toLowerCase() === 'na') return 0;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    function parseDateFromName(name) {
+      const m = String(name).match(/(20\d{2})[.\-_/]?(\d{2})[.\-_/]?(\d{2})/);
+      if (!m) return null;
+      const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      return isNaN(dt.getTime()) ? null : dt.getTime();
+    }
+
+    const fmtDate = ms => {
+      const d = new Date(ms);
+      return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`;
+    };
+
+    function parseCSVText(text) {
+      const out = [], row = [];
+      const s = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      let f = '', q = false;
+      for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (q) {
+          if (c === '"') { if (s[i + 1] === '"') { f += '"'; i++; } else { q = false; } } 
+          else { f += c; }
+        } else {
+          if (c === '"') q = true;
+          else if (c === ',') { row.push(f); f = ''; }
+          else if (c === '\n') { row.push(f); out.push(row.slice()); row.length = 0; f = ''; }
+          else { f += c; }
+        }
+      }
+      row.push(f);
+      if (row.length > 1 || row[0] !== '') out.push(row);
+      if (!out.length) return [];
+      const headers = out[0].map(h => STR(h));
+      return out.slice(1).map(r => {
+        const o = {};
+        headers.forEach((h, i) => o[h] = r[i] !== undefined ? r[i] : '');
+        return o;
+      });
+    }
+
+    function readCSVFile(file) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(parseCSVText(fr.result || ''));
+        fr.onerror = () => reject(new Error('File read error'));
+        fr.readAsText(file);
+      });
+    }
+
+    function splitStaff(staffRaw) {
+      return STR(staffRaw).split(';').map(x => STR(x).replace(/\s*\([^)]*\)\s*/g, '').trim()).filter(Boolean).sort();
+    }
+
+    function courseLabel(r) {
+      const num = STR(r['Enrollment Course Number']), name = STR(r['Enrollment Course Name']);
+      return num ? (name ? `${num} — ${name}` : num) : (name || '');
+    }
+
+    function rowKey(r) { return `${STR(r['Student ID'])}||${STR(r['Enrollment Course Number'])}`; }
+
+    const CHANGE_FIELDS = ['Total Progress Reports', 'Absences', 'Dropped?', 'Midterm Grade', 'Final Grade'];
+
+    function rowsDifferent(a, b) {
+      if (!a || !b) return true;
+      for (const f of CHANGE_FIELDS) if (STR(a[f]) !== STR(b[f])) return true;
+      return false;
+    }
+
+    function groupByStaff(rows) {
+      const map = new Map();
+      for (const r of rows) {
+        const staffList = splitStaff(r['Assigned Staff']);
+        const keys = staffList.length ? staffList : ['(Unassigned)'];
+        for (const s of keys) { if (!map.has(s)) map.set(s, []); map.get(s).push(r); }
+      }
+      const sortedMap = new Map([...map.entries()].sort());
+      for (const arr of sortedMap.values()) {
+        arr.sort((a, b) => STR(a['Student Name']).localeCompare(STR(b['Student Name'])));
+      }
+      return sortedMap;
+    }
+
+    function firstChangeDateForKey(key, snaps) {
+      for (let i = 0; i < snaps.length; i++) {
+        const cur = snaps[i].rowMap.get(key);
+        if (!cur) continue;
+        const prev = i > 0 ? snaps[i - 1].rowMap.get(key) : null;
+        if (!prev || rowsDifferent(prev, cur)) return snaps[i].dateLabel;
+      }
+      return null;
+    }
+
+    function firstSeenDateForRow(key, snaps, predicate) {
+      for (const snap of snaps) {
+        const r = snap.rowMap.get(key);
+        if (r && predicate(r)) return snap.dateLabel;
+      }
+      return null;
+    }
+
+    function createSection(title, id) {
+      const sec = document.createElement('section');
+      sec.className = 'card card-soft shadow-sm';
+      sec.innerHTML = `
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h2 mb-0">${title}</h2>
+            <span id="${id}-count" class="badge bg-secondary rounded-pill"></span>
+          </div>
+          <div id="${id}-body"></div>
+        </div>
+      `;
+      return sec;
+    }
+
+    function renderGroup(container, label, rows, renderRow) {
+      const wrap = document.createElement('div');
+      wrap.className = 'mb-4';
+      wrap.innerHTML = `<div class="group-block"><h3 class="h3 group-label">${label} <span class="pill ms-2">${rows.length}</span></h3></div>`;
+      const list = document.createElement('div');
+      list.className = 'student-list';
+      rows.forEach(r => {
+        const row = document.createElement('div');
+        row.className = `student-row ${r.__isNew ? 'is-new' : ''}`;
+        row.innerHTML = renderRow(r);
+        list.appendChild(row);
+      });
+      wrap.appendChild(list);
+      container.appendChild(wrap);
+    }
+
+    const multiInput = document.getElementById('multiInput');
+    const snapMeta = document.getElementById('snapMeta');
+    const report = document.getElementById('report');
+    let snapshots = [];
+
+    multiInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      try {
+        const enriched = files.map(f => {
+          const dateValue = parseDateFromName(f.name) ?? f.lastModified;
+          return { file: f, dateValue, dateLabel: fmtDate(dateValue) };
+        }).sort((a,b) => a.dateValue - b.dateValue);
+
+        snapshots = await Promise.all(enriched.map(async info => {
+          const rows = await readCSVFile(info.file);
+          const rowMap = new Map(rows.map(r => [rowKey(r), r]));
+          const byStudent = new Map();
+          rows.forEach(r => {
+            const sid = STR(r['Student ID']);
+            if (sid) { if (!byStudent.has(sid)) byStudent.set(sid, []); byStudent.get(sid).push(r); }
+          });
+          return { ...info, rows, rowMap, byStudent };
+        }));
+
+        snapMeta.innerHTML = snapshots.map(s => `<span class="pill since me-1">${s.dateLabel}</span>`).join('');
+        showStatus(`Loaded ${snapshots.length} files.`, "ok");
+        buildReport();
+      } catch (err) { showStatus(err.message, "error"); }
+    });
+
+    function buildReport() {
+      report.innerHTML = '';
+      if (!snapshots.length) return;
+      const latest = snapshots[snapshots.length - 1];
+      const prev = snapshots[snapshots.length - 2] || null;
+
+      // 1. Logic Calculations using "Total Progress Reports"
+      
+      // ONLY differences between the very last two files
+      const changedRows = latest.rows.filter(r => {
+        if (!prev) return false;
+        const pk = rowKey(r);
+        return !prev.rowMap.has(pk) || rowsDifferent(prev.rowMap.get(pk), r);
+      }).map(r => {
+        const pk = rowKey(r);
+        const prevR = prev ? prev.rowMap.get(pk) : null;
+        const isNewAlert = (!prevR || NUM(prevR['Total Progress Reports']) === 0) && NUM(r['Total Progress Reports']) >= 1;
+        return { ...r, __isNew: isNewAlert || !prevR, __since: firstChangeDateForKey(pk, snapshots) };
+      });
+
+      const twoPlus = latest.rows.filter(r => NUM(r['Total Progress Reports']) >= 2).map(r => {
+        const was = prev && prev.rowMap.has(rowKey(r)) && NUM(prev.rowMap.get(rowKey(r))['Total Progress Reports']) >= 2;
+        return { ...r, __isNew: !was, __since: firstSeenDateForRow(rowKey(r), snapshots, x => NUM(x['Total Progress Reports']) >= 2) };
+      });
+
+      const multiClass = [];
+      for (const [sid, sRows] of latest.byStudent.entries()) {
+        const alertClasses = sRows.filter(r => NUM(r['Total Progress Reports']) >= 1);
+        if (alertClasses.length >= 2) {
+          let wasMulti = false;
+          if (prev && prev.byStudent.has(sid)) {
+            wasMulti = prev.byStudent.get(sid).filter(r => NUM(r['Total Progress Reports']) >= 1).length >= 2;
+          }
+          multiClass.push({
+            __studentID: sid,
+            __studentName: STR(sRows[0]['Student Name']),
+            __classesList: alertClasses.map(courseLabel),
+            __staffAll: [...new Set(sRows.flatMap(r => splitStaff(r['Assigned Staff'])))],
+            __isNew: !wasMulti,
+            __since: snapshots.find(s => (s.byStudent.get(sid)||[]).filter(r => NUM(r['Total Progress Reports']) >= 1).length >= 2)?.dateLabel
+          });
+        }
+      }
+
+      const allAlerts = latest.rows.filter(r => NUM(r['Total Progress Reports']) >= 1).map(r => ({
+        ...r, 
+        __isNew: !(prev && prev.rowMap.has(rowKey(r)) && NUM(prev.rowMap.get(rowKey(r))['Total Progress Reports']) >= 1),
+        __since: firstSeenDateForRow(rowKey(r), snapshots, x => NUM(x['Total Progress Reports']) >= 1)
+      }));
+
+      // 2. Render Functions
+      const renderSection = (title, id, data, isStudentLevel, rowTemplate) => {
+        const body = createSection(title, id).querySelector(`#${id}-body`);
+        report.appendChild(body.parentElement.parentElement);
+        document.getElementById(`${id}-count`).textContent = data.length;
+        if (!data.length) { body.innerHTML = '<div class="text-muted small italic">No data found for this comparison.</div>'; return; }
+        
+        let grouped;
+        if (isStudentLevel) {
+          const map = new Map();
+          data.forEach(d => {
+            const staffs = d.__staffAll.length ? d.__staffAll : ['(Unassigned)'];
+            staffs.forEach(s => { if(!map.has(s)) map.set(s, []); map.get(s).push(d); });
+          });
+          grouped = new Map([...map.entries()].sort());
+        } else {
+          grouped = groupByStaff(data);
+        }
+        for (const [label, rows] of grouped.entries()) { renderGroup(body, label, rows, rowTemplate); }
+      };
+
+      // Execution
+      renderSection('Recent Changes (by Advisor)', 'changes', changedRows, false, r => `
+        <div class="row g-2">
+          <div class="col-md-5"><h4 class="h4">${r['Student Name']}</h4><div class="small text-muted">${r['Student ID']} ${r.__since ? `<span class="pill since">Since ${r.__since}</span>`:''}</div></div>
+          <div class="col-md-7 small">${courseLabel(r)}</div>
+        </div>
+      `);
+
+      renderSection('2+ Total Reports (by Advisor)', 'twoPlus', twoPlus, false, r => `
+        <div class="row g-2">
+          <div class="col-md-5"><h4 class="h4">${r['Student Name']}</h4><div class="small text-muted">${r['Student ID']} ${r.__since ? `<span class="pill since">Since ${r.__since}</span>`:''}</div></div>
+          <div class="col-md-7 small">${courseLabel(r)} <span class="pill ms-2">Total Reports: ${r['Total Progress Reports']}</span></div>
+        </div>
+      `);
+
+      renderSection('Alerts in Multiple Classes (by Advisor)', 'multiClass', multiClass, true, r => `
+        <div class="row g-2">
+          <div class="col-md-5"><h4 class="h4">${r.__studentName}</h4><div class="small text-muted">${r.__studentID} ${r.__since ? `<span class="pill since">Since ${r.__since}</span>`:''}</div></div>
+          <div class="col-md-7 small">${r.__classesList.join(', ')}</div>
+        </div>
+      `);
+
+      renderSection('All Active Alerts (by Advisor)', 'allAlerts', allAlerts, false, r => `
+        <div class="row g-2">
+          <div class="col-md-5"><h4 class="h4">${r['Student Name']}</h4><div class="small text-muted">${r['Student ID']} ${r.__since ? `<span class="pill since">Since ${r.__since}</span>`:''}</div></div>
+          <div class="col-md-7 small">${courseLabel(r)} <span class="pill ms-2">Total Reports: ${r['Total Progress Reports']}</span></div>
+        </div>
+      `);
+
+      const timelineBody = createSection('Alert Timeline (by Date)', 'timeline').querySelector('#timeline-body');
+      report.appendChild(timelineBody.parentElement.parentElement);
+      document.getElementById('timeline-count').textContent = allAlerts.length;
+      
+      const timelineData = [...allAlerts].sort((a,b) => a.__since.localeCompare(b.__since) || a['Student Name'].localeCompare(b['Student Name']));
+      const dateMap = new Map();
+      timelineData.forEach(r => {
+        if (!dateMap.has(r.__since)) dateMap.set(r.__since, []);
+        dateMap.get(r.__since).push(r);
+      });
+
+      for (const [date, rows] of dateMap.entries()) {
+        renderGroup(timelineBody, `Since ${date}`, rows, r => `
+          <div class="row g-2">
+            <div class="col-md-5"><h4 class="h4">${r['Student Name']}</h4><div class="small text-muted">${r['Student ID']}</div></div>
+            <div class="col-md-7 small">${courseLabel(r)} <span class="pill ms-2">Advisor: ${splitStaff(r['Assigned Staff']).join(', ') || 'Unassigned'}</span></div>
+          </div>
+        `);
+      }
+    }
+  </script>
+</body>
+</html>
