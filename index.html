@@ -76,6 +76,20 @@
     
     .form-control-sm { border-radius: 0.35rem; }
     details summary { cursor: pointer; color: var(--umass-maroon); font-weight: 500; }
+
+    /* Advisor Filter Styles */
+    #filterContainer { display: none; }
+    .advisor-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.5rem;
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 0.5rem;
+      border: 1px solid #eee;
+      border-radius: 0.25rem;
+    }
+    .filter-btn-sm { font-size: 0.7rem; padding: 2px 8px; }
   </style>
 </head>
 
@@ -89,7 +103,8 @@
       </p>
     </header>
 
-    <section class="card card-soft shadow-sm">
+    <!-- Upload Card -->
+    <section class="card card-soft shadow-sm mb-3">
       <div class="card-body">
         <div class="row g-3 align-items-center">
           <div class="col-12 col-md-7">
@@ -113,7 +128,21 @@
       </div>
     </section>
 
-    <div id="report" class="d-flex flex-column mt-4"></div>
+    <!-- Filter Card (Hidden until data loaded) -->
+    <section id="filterContainer" class="card card-soft shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="m-0 small fw-bold text-uppercase text-muted">Filter by Advisor</h5>
+          <div>
+            <button id="btnAll" class="btn btn-outline-secondary filter-btn-sm">Select All</button>
+            <button id="btnNone" class="btn btn-outline-secondary filter-btn-sm">Select None</button>
+          </div>
+        </div>
+        <div id="advisorList" class="advisor-grid small"></div>
+      </div>
+    </section>
+
+    <div id="report" class="d-flex flex-column"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -200,12 +229,17 @@
       return false;
     }
 
-    function groupByStaff(rows) {
+    function groupByStaff(rows, selectedAdvisors) {
       const map = new Map();
       for (const r of rows) {
-        const staffList = splitStaff(r['Assigned Staff']);
-        const keys = staffList.length ? staffList : ['(Unassigned)'];
-        for (const s of keys) { if (!map.has(s)) map.set(s, []); map.get(s).push(r); }
+        let staffList = splitStaff(r['Assigned Staff']);
+        if (staffList.length === 0) staffList = ['(Unassigned)'];
+        
+        for (const s of staffList) { 
+          if (selectedAdvisors && !selectedAdvisors.has(s)) continue;
+          if (!map.has(s)) map.set(s, []); 
+          map.get(s).push(r); 
+        }
       }
       const sortedMap = new Map([...map.entries()].sort());
       for (const arr of sortedMap.values()) {
@@ -234,7 +268,7 @@
 
     function createSection(title, id) {
       const sec = document.createElement('section');
-      sec.className = 'card card-soft shadow-sm';
+      sec.className = 'card card-soft shadow-sm mb-4';
       sec.innerHTML = `
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
@@ -263,10 +297,24 @@
       container.appendChild(wrap);
     }
 
+    // ================= App Logic =================
     const multiInput = document.getElementById('multiInput');
     const snapMeta = document.getElementById('snapMeta');
     const report = document.getElementById('report');
+    const filterContainer = document.getElementById('filterContainer');
+    const advisorList = document.getElementById('advisorList');
+    
     let snapshots = [];
+
+    // Filter Controls
+    document.getElementById('btnAll').onclick = () => {
+      advisorList.querySelectorAll('input').forEach(i => i.checked = true);
+      buildReport();
+    };
+    document.getElementById('btnNone').onclick = () => {
+      advisorList.querySelectorAll('input').forEach(i => i.checked = false);
+      buildReport();
+    };
 
     multiInput.addEventListener('change', async (e) => {
       const files = Array.from(e.target.files || []);
@@ -290,19 +338,54 @@
 
         snapMeta.innerHTML = snapshots.map(s => `<span class="pill since me-1">${s.dateLabel}</span>`).join('');
         showStatus(`Loaded ${snapshots.length} files.`, "ok");
+        
+        setupAdvisorFilter();
         buildReport();
       } catch (err) { showStatus(err.message, "error"); }
     });
 
+    function setupAdvisorFilter() {
+      const latest = snapshots[snapshots.length - 1];
+      const allAdvisors = new Set();
+      latest.rows.forEach(r => {
+        const staff = splitStaff(r['Assigned Staff']);
+        if (staff.length) staff.forEach(s => allAdvisors.add(s));
+        else allAdvisors.add('(Unassigned)');
+      });
+
+      const sorted = [...allAdvisors].sort();
+      advisorList.innerHTML = sorted.map(s => `
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="${s}" id="adv-${s}" checked onchange="buildReport()">
+          <label class="form-check-label text-truncate" for="adv-${s}" style="max-width:180px">${s}</label>
+        </div>
+      `).join('');
+      filterContainer.style.display = 'block';
+    }
+
+    function getSelectedAdvisors() {
+      const checked = advisorList.querySelectorAll('input:checked');
+      return new Set([...checked].map(i => i.value));
+    }
+
     function buildReport() {
       report.innerHTML = '';
       if (!snapshots.length) return;
+      
       const latest = snapshots[snapshots.length - 1];
       const prev = snapshots[snapshots.length - 2] || null;
+      const selectedAdvisors = getSelectedAdvisors();
 
-      // 1. Logic Calculations using "Total Progress Reports"
-      
-      // ONLY differences between the very last two files
+      // Filter rows based on selected advisors
+      const filterBySelectedStaff = (rows) => {
+        return rows.filter(r => {
+          let staff = splitStaff(r['Assigned Staff']);
+          if (staff.length === 0) staff = ['(Unassigned)'];
+          return staff.some(s => selectedAdvisors.has(s));
+        });
+      };
+
+      // 1. Logic Calculations
       const changedRows = latest.rows.filter(r => {
         if (!prev) return false;
         const pk = rowKey(r);
@@ -346,22 +429,23 @@
 
       // 2. Render Functions
       const renderSection = (title, id, data, isStudentLevel, rowTemplate) => {
+        // Apply advisor filter to the raw list before grouping
+        let filteredData;
+        if (isStudentLevel) {
+          filteredData = data.filter(d => {
+            let staff = d.__staffAll.length ? d.__staffAll : ['(Unassigned)'];
+            return staff.some(s => selectedAdvisors.has(s));
+          });
+        } else {
+          filteredData = filterBySelectedStaff(data);
+        }
+
         const body = createSection(title, id).querySelector(`#${id}-body`);
         report.appendChild(body.parentElement.parentElement);
-        document.getElementById(`${id}-count`).textContent = data.length;
-        if (!data.length) { body.innerHTML = '<div class="text-muted small italic">No data found for this comparison.</div>'; return; }
+        document.getElementById(`${id}-count`).textContent = filteredData.length;
+        if (!filteredData.length) { body.innerHTML = '<div class="text-muted small italic">No data found for selected advisors.</div>'; return; }
         
-        let grouped;
-        if (isStudentLevel) {
-          const map = new Map();
-          data.forEach(d => {
-            const staffs = d.__staffAll.length ? d.__staffAll : ['(Unassigned)'];
-            staffs.forEach(s => { if(!map.has(s)) map.set(s, []); map.get(s).push(d); });
-          });
-          grouped = new Map([...map.entries()].sort());
-        } else {
-          grouped = groupByStaff(data);
-        }
+        const grouped = groupByStaff(filteredData, selectedAdvisors);
         for (const [label, rows] of grouped.entries()) { renderGroup(body, label, rows, rowTemplate); }
       };
 
@@ -394,11 +478,13 @@
         </div>
       `);
 
+      // 3. Timeline (Filtered)
+      const filteredTimeline = filterBySelectedStaff(allAlerts);
       const timelineBody = createSection('Alert Timeline (by Date)', 'timeline').querySelector('#timeline-body');
       report.appendChild(timelineBody.parentElement.parentElement);
-      document.getElementById('timeline-count').textContent = allAlerts.length;
+      document.getElementById('timeline-count').textContent = filteredTimeline.length;
       
-      const timelineData = [...allAlerts].sort((a,b) => a.__since.localeCompare(b.__since) || a['Student Name'].localeCompare(b['Student Name']));
+      const timelineData = [...filteredTimeline].sort((a,b) => a.__since.localeCompare(b.__since) || a['Student Name'].localeCompare(b['Student Name']));
       const dateMap = new Map();
       timelineData.forEach(r => {
         if (!dateMap.has(r.__since)) dateMap.set(r.__since, []);
