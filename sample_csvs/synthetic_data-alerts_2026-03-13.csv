@@ -1,0 +1,10 @@
+Student Name,Student ID,Enrollment Course Number,Enrollment Course Name,Assigned Staff,Total Progress Reports,Absences,Dropped?,Midterm Grade,Final Grade
+Luke Skywalker,10010001,JEDI 101,Lightsaber Fundamentals,"Kenobi, Obi-Wan (Advisor)",2,2,,,
+Luke Skywalker,10010001,PILOT 200,Starfighter Tactics,"Kenobi, Obi-Wan (Advisor); Yoda (Advisor)",1,0,,,
+Finn,10010003,PILOT 200,Starfighter Tactics,"Kenobi, Obi-Wan (Advisor)",2,3,,,
+Kylo Ren,10010002,SITH 220,Dark Side Philosophy,Yoda (Advisor),2,1,,,
+Rey,10010004,JEDI 205,Force Ethics & Responsibility,Yoda (Advisor),1,0,,,
+Anakin Skywalker,10010005,JEDI 101,Lightsaber Fundamentals,Yoda (Advisor),1,1,,,
+Anakin Skywalker,10010005,SITH 220,Dark Side Philosophy,Yoda (Advisor),1,0,,,
+Grogu,10010006,JEDI 101,Lightsaber Fundamentals,"Kenobi, Obi-Wan (Advisor)",1,3,,,
+Padmé Amidala,10010007,SENATE 110,Interstellar Diplomacy,Yoda (Advisor),1,0,,,
